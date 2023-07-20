@@ -15,7 +15,6 @@ class MobileTest extends munit.FunSuite:
       ),
       LichessMobileUa(
         "0.2.1",
-        897,
         Some(UserId("thibault")),
         Sri("uw-y3_79sz"),
         "Android",
@@ -25,7 +24,11 @@ class MobileTest extends munit.FunSuite:
     )
     assertEquals(
       LichessMobileUa.parse("Lichess Mobile/1.0.0_ALPHA-2 () as:anon sri:uwy379sz os:iOS/what-3v3r dev:"),
-      LichessMobileUa("1.0.0_ALPHA-2", 0, None, Sri("uwy379sz"), "iOS", "what-3v3r", "").some
+      LichessMobileUa("1.0.0_ALPHA-2", None, Sri("uwy379sz"), "iOS", "what-3v3r", "").some
+    )
+    assertEquals(
+      LichessMobileUa.parse("Lichess Mobile/1.0.0_ALPHA-2 as:anon sri:uwy379sz os:iOS/what-3v3r dev:"),
+      LichessMobileUa("1.0.0_ALPHA-2", None, Sri("uwy379sz"), "iOS", "what-3v3r", "").some
     )
 
   test("sri casing"):
@@ -34,12 +37,6 @@ class MobileTest extends munit.FunSuite:
         .parse("Lichess Mobile/1.0.0_ALPHA-2 () as:anon sri:fp_Osk6zKPF96MXI os:iOS/what-3v3r dev:")
         .map(_.sri),
       Some(Sri("fp_Osk6zKPF96MXI"))
-    )
-
-  test("old instance"):
-    assertEquals(
-      LichessMobileUa.parse("Lichess Mobile/1.0.0_ALPHA-2 () as:anon os:iOS/what-3v3r dev:"),
-      LichessMobileUa("1.0.0_ALPHA-2", 0, None, Sri("old"), "iOS", "what-3v3r", "").some
     )
 
   test("invalid UAs"):
