@@ -46,7 +46,7 @@ case class Sheet(scores: List[Sheet.Score], total: Int, variant: Variant):
     scores.foreach: score =>
       sb append score.value
     sb.toString
-
+  def nbGames: String = scores.size.toString
 object Sheet:
   def empty(variant: Variant) = Sheet(Nil, 0, variant)
 

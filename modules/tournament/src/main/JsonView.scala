@@ -467,7 +467,7 @@ object JsonView:
           .add("w" -> p.withdraw)
 
   val playerResultWrites: OWrites[Player.Result] = OWrites[Player.Result]:
-    case Player.Result(player, user, rank, sheet) =>
+    case Player.Result(player, user, rank, sheet, games) =>
       Json
         .obj(
           "rank"     -> rank,
@@ -478,6 +478,7 @@ object JsonView:
         .add("title" -> user.title)
         .add("performance" -> player.performanceOption)
         .add("team" -> player.team)
+        .add("games"->games)
         .add("sheet", sheet.map(sheetJson(streakFire = false, withScores = true)))
 
   def playerJson(

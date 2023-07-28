@@ -205,6 +205,7 @@ final class Api(
     env.tournament.tournamentRepo byId id orNotFound { tour =>
       import lila.tournament.JsonView.playerResultWrites
       val withSheet = getBool("sheet")
+      val withGames = getBool("games")
       val perSecond = MaxPerSecond:
         if withSheet
         then (20 - (tour.estimateNumberOfGamesOneCanPlay / 20).toInt).atLeast(10)
@@ -214,7 +215,9 @@ final class Api(
           tour,
           perSecond,
           getInt("nb") | Int.MaxValue,
-          withSheet = withSheet
+          withData = withSheet || withGames,
+          withSheet=withSheet,
+          withGames=withGames
         )
       val result =
         if csv then csvDownload(lila.tournament.TournamentCsv(source))

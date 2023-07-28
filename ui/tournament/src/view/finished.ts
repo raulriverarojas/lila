@@ -96,7 +96,7 @@ function stats(ctrl: TournamentController): VNode | undefined {
         {
           attrs: {
             'data-icon': licon.Download,
-            href: `/api/tournament/${data.id}/results?as=csv`,
+            href: `/api/tournament/${data.id}/results?as=csv&games=true`,
             download: true,
           },
         },
