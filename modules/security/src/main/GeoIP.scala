@@ -47,6 +47,9 @@ case class Location(
     city: Option[String]
 ):
 
+  lazy val id = lila.common.String.slugify:
+    List(shortCountry.some, region, city).flatten.mkString("")
+
   def shortCountry: String = ~country.split(',').headOption
 
   override def toString = List(shortCountry.some, region, city).flatten mkString " > "
@@ -65,4 +68,4 @@ object Location:
       Option(res.getCity).flatMap(c => Option(c.getName))
     )
 
-  case class WithProxy(location: Location, proxy: Option[String])
+  case class WithProxy(location: Location, proxy: IsProxy)

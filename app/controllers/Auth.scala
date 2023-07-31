@@ -474,31 +474,31 @@ final class Auth(
 
   private[controllers] object LoginRateLimit:
     private val lastAttemptIp =
-      env.memo.cacheApi.notLoadingSync[UserIdOrEmail, IpAddress](64, "login.lastIp"):
-        _.expireAfterWrite(10.seconds).build()
+      env.memo.cacheApi.notLoadingSync[UserIdOrEmail, IpAddress](128, "login.lastIp"):
+        _.expireAfterWrite(1.minute).build()
     def apply(id: UserIdOrEmail, req: RequestHeader)(run: RateLimit.Charge => Fu[Result])(using
         Context
     ): Fu[Result] =
       val ip          = req.ipAddress
       val multipleIps = lastAttemptIp.asMap().put(id, ip).fold(false)(_ != ip)
       env.security.ipTrust
-        .isSuspicious(ip)
-        .flatMap: ipSusp =>
+        .rateLimitCostFactor(ip, _.proxyMultiplier(8))
+        .flatMap: cost =>
           PasswordHasher.rateLimit[Result](
             rateLimited,
             enforce = env.net.rateLimit,
-            ipCost = 1 + ipSusp.so(15) + EmailAddress.isValid(id.value).so(2),
+            ipCost = cost.toInt + EmailAddress.isValid(id.value).so(2),
             userCost = 1 + multipleIps.so(4)
           )(id, req)(run)
 
   private[controllers] def HasherRateLimit(run: => Fu[Result])(using me: Me, ctx: Context): Fu[Result] =
-    env.security
-      .ip2proxy(ctx.ip)
-      .flatMap: proxy =>
+    env.security.ipTrust
+      .rateLimitCostFactor(ctx.ip, _.proxyMultiplier(8))
+      .flatMap: cost =>
         PasswordHasher.rateLimit[Result](
           rateLimited,
           enforce = env.net.rateLimit,
-          ipCost = if proxy.is then 10 else 1
+          ipCost = cost.toInt
         )(me.userId into UserIdOrEmail, req)(_ => run)
 
   private[controllers] def EmailConfirmRateLimit = lila.security.EmailConfirm.rateLimit[Result]

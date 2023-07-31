@@ -31,7 +31,7 @@ final class Analyser(
         ) flatMap { result =>
           result.ok so {
             makeWork(game, sender) flatMap { work =>
-              workQueue {
+              workQueue:
                 repo getSimilarAnalysis work flatMap {
                   // already in progress, do nothing
                   case Some(similar) if similar.isAcquired => funit
@@ -48,7 +48,6 @@ final class Analyser(
                       repo addAnalysis work.copy(skipPositions = skipPositions)
                     }
                 }
-              }
             }
           } inject result
         }
@@ -79,7 +78,7 @@ final class Analyser(
                 moves = moves take maxPlies map (_.uci) mkString " "
               ),
               // if black moves first, use 1 as startPly so the analysis doesn't get reversed
-              startPly = Ply(initialFen.map(_.color).so(_.fold(0, 1))),
+              startPly = Ply(initialFen.map(_.colorOrWhite).so(_.fold(0, 1))),
               sender = sender
             )
             workQueue {

@@ -18,6 +18,9 @@ import lila.security.{ Granter, Permission, UserLogins, Dated, UserClient, UserA
 import lila.user.{ Me, User }
 
 object mod:
+
+  import views.html.mod.userTable
+
   private def mzSection(key: String) =
     div(cls := s"mz-section mz-section--$key", dataRel := key, id := s"mz_$key")
 
@@ -561,9 +564,7 @@ object mod:
       )
     )
 
-  private val sortNumberTh    = th(attr("data-sort-method") := "number")
-  private val sortNoneTh      = th(attr("data-sort-method") := "none")
-  private val dataSort        = attr("data-sort")
+  private val dataValue       = attr("data-value")
   private val dataTags        = attr("data-tags")
   private val playban         = iconTag(licon.Clock)
   private val alt: Frag       = i("A")
@@ -583,6 +584,7 @@ object mod:
       renderIp: RenderIp
   ): Tag =
     import data.*
+    val canLocate = isGranted(_.Admin)
     mzSection("others")(
       table(cls := "slist")(
         thead(
@@ -595,27 +597,20 @@ object mod:
               )
             ),
             isGranted(_.Admin) option th("Email"),
-            sortNumberTh(dataSortDefault)("Same"),
+            thSortNumber(dataSortDefault)("Same"),
             th("Games"),
-            sortNumberTh(playban)(cls                 := "i", title := "Playban"),
-            sortNumberTh(alt)(cls                     := "i", title := "Alt"),
-            sortNumberTh(shadowban)(cls               := "i", title := "Shadowban"),
-            sortNumberTh(boosting)(cls                := "i", title := "Boosting"),
-            sortNumberTh(engine)(cls                  := "i", title := "Engine"),
-            sortNumberTh(closed)(cls                  := "i", title := "Closed"),
-            sortNumberTh(reportban)(cls               := "i", title := "Reportban"),
-            sortNumberTh(notesText)(cls               := "i", title := "Notes"),
-            sortNumberTh(iconTag(licon.InkQuill))(cls := "i", title := "Appeals"),
-            sortNumberTh("Created"),
-            sortNumberTh("Active"),
-            isGranted(_.CloseAccount) option sortNoneTh(
-              select(style := "width: 2em")(
-                option(value := "")(""),
-                option(value := "all")("Select all"),
-                option(value := "none")("Select none"),
-                option(value := "alt")("Alt selected")
-              )
-            )
+            thSortNumber(playban)(cls                 := "i", title := "Playban"),
+            thSortNumber(alt)(cls                     := "i", title := "Alt"),
+            thSortNumber(shadowban)(cls               := "i", title := "Shadowban"),
+            thSortNumber(boosting)(cls                := "i", title := "Boosting"),
+            thSortNumber(engine)(cls                  := "i", title := "Engine"),
+            thSortNumber(closed)(cls                  := "i", title := "Closed"),
+            thSortNumber(reportban)(cls               := "i", title := "Reportban"),
+            thSortNumber(notesText)(cls               := "i", title := "Notes"),
+            thSortNumber(iconTag(licon.InkQuill))(cls := "i", title := "Appeals"),
+            thSortNumber("Created"),
+            thSortNumber("Active"),
+            userTable.selectAltAll
           )
         ),
         tbody(
@@ -624,8 +619,12 @@ object mod:
               n.to.is(o.id) && (ctx.me.exists(n.isFrom) || isGranted(_.Admin))
             val userAppeal = appeals.find(_.isAbout(o.id))
             tr(
-              dataTags := s"${other.ips.map(renderIp).mkString(" ")} ${other.fps.mkString(" ")}",
-              cls      := o.is(u) option "same"
+              dataTags := List(
+                other.ips.map(renderIp),
+                other.fps,
+                canLocate.so(userLogins.distinctLocationIdsOf(other.ips))
+              ).flatten.mkString(" "),
+              cls := o.is(u) option "same"
             )(
               if o.is(u) || Granter.canViewAltUsername(o)
               then td(dataSort := o.id)(userLink(o, withPerfRating = o.perfs.some, params = "?mod"))
@@ -676,14 +675,7 @@ object mod:
               ,
               td(dataSort := o.createdAt.toMillis)(momentFromNowServer(o.createdAt)),
               td(dataSort := o.seenAt.map(_.toMillis.toString))(o.seenAt.map(momentFromNowServer)),
-              canCloseAlt option td(
-                input(
-                  tpe      := "checkbox",
-                  name     := "user[]",
-                  st.value := "all",
-                  disabled := o.marks.alt.option(true)
-                )
-              )
+              userTable.userCheckboxTd(o.marks.alt)
             )
           }
         )
@@ -702,28 +694,27 @@ object mod:
     val canLocate = isGranted(_.Admin)
     mzSection("identification")(
       canLocate option div(cls := "spy_locs")(
-        table(cls := "slist slist--sort")(
+        table(cls := "slist slist--sort spy_filter")(
           thead(
             tr(
               th("Country"),
               th("Proxy"),
               th("Region"),
               th("City"),
-              sortNumberTh("Date")
+              thSortNumber("Date")
             )
           ),
           tbody(
             logins.distinctLocations.toList
               .sortBy(-_.seconds)
-              .map { l =>
-                tr(
+              .map: l =>
+                tr(dataValue := l.value.location.id)(
                   td(l.value.location.country),
-                  td(l.value.proxy map { proxy => span(cls := "proxy", title := "Proxy")(proxy) }),
+                  td(l.value.proxy.name map { proxy => span(cls := "proxy", title := "Proxy")(proxy) }),
                   td(l.value.location.region),
                   td(l.value.location.city),
                   td(dataSort := l.date.toMillis)(momentFromNowServer(l.date))
                 )
-              }
               .toList
           )
         )
@@ -735,7 +726,7 @@ object mod:
               th(pluralize("Device", logins.uas.size)),
               th("OS"),
               th("Client"),
-              sortNumberTh("Date"),
+              thSortNumber("Date"),
               th("Type")
             )
           ),
@@ -762,20 +753,20 @@ object mod:
           thead(
             tr(
               th(pluralize("IP", logins.ips.size)),
-              sortNumberTh("Alts"),
+              thSortNumber("Alts"),
               th,
               th("Client"),
-              sortNumberTh("Date"),
-              canIpBan option sortNumberTh
+              thSortNumber("Date"),
+              canIpBan option thSortNumber
             )
           ),
           tbody(
             logins.ips.sortBy(ip => (-ip.alts.score, -ip.ip.seconds)).map { ip =>
               val renderedIp = renderIp(ip.ip.value)
-              tr(cls := ip.blocked option "blocked")(
+              tr(cls := ip.blocked option "blocked", dataValue := renderedIp, dataTags := ip.location.id)(
                 td(a(href := routes.Mod.singleIp(renderedIp))(renderedIp)),
                 td(dataSort := ip.alts.score)(altMarks(ip.alts)),
-                td(ip.proxy map { proxy => span(cls := "proxy", title := "Proxy")(proxy) }),
+                td(ip.proxy.name map { proxy => span(cls := "proxy", title := "Proxy")(proxy) }),
                 td(ip.clients.toList.map(_.toString).sorted mkString ", "),
                 td(dataSort := ip.ip.date.toMillis)(momentFromNowServer(ip.ip.date)),
                 canIpBan option td(dataSort := (9999 - ip.alts.cleans))(
@@ -797,15 +788,15 @@ object mod:
           thead(
             tr(
               th(pluralize("Print", logins.prints.size)),
-              sortNumberTh("Alts"),
+              thSortNumber("Alts"),
               th("Client"),
-              sortNumberTh("Date"),
-              canFpBan option sortNumberTh
+              thSortNumber("Date"),
+              canFpBan option thSortNumber
             )
           ),
           tbody(
             logins.prints.sortBy(fp => (-fp.alts.score, -fp.fp.seconds)).map { fp =>
-              tr(cls := fp.banned option "blocked")(
+              tr(cls := fp.banned option "blocked", dataValue := fp.fp.value)(
                 td(a(href := routes.Mod.print(fp.fp.value.value))(fp.fp.value)),
                 td(dataSort := fp.alts.score)(altMarks(fp.alts)),
                 td(fp.client.toString),
@@ -826,6 +817,63 @@ object mod:
       )
     )
 
+  def apply(
+      users: List[User.WithEmails],
+      showUsernames: Boolean = false,
+      eraseButton: Boolean = false,
+      checkboxes: Boolean = false
+  )(using Context, Me) =
+    users.nonEmpty option table(cls := "slist slist-pad mod-user-table")(
+      thead(
+        tr(
+          th("User"),
+          th("Games"),
+          th("Marks"),
+          th("Closed"),
+          th("Created"),
+          th("Active"),
+          eraseButton option th,
+          checkboxes option userTable.selectAltAll
+        )
+      ),
+      tbody(
+        users.map { case lila.user.User.WithEmails(u, emails) =>
+          tr(
+            if showUsernames || Granter.canViewAltUsername(u.user)
+            then
+              td(
+                userLink(u.user, withPerfRating = u.perfs.some, params = "?mod"),
+                isGranted(_.Admin) option
+                  userTable.email(emails.strList.mkString(", "))
+              )
+            else td,
+            td(u.count.game.localize),
+            td(
+              u.marks.alt option userTable.mark("ALT"),
+              u.marks.engine option userTable.mark("ENGINE"),
+              u.marks.boost option userTable.mark("BOOSTER"),
+              u.marks.troll option userTable.mark("SHADOWBAN")
+            ),
+            td(u.enabled.no option userTable.mark("CLOSED")),
+            td(momentFromNow(u.createdAt)),
+            td(u.seenAt.map(momentFromNow(_))),
+            eraseButton option td(
+              postForm(action := routes.Mod.gdprErase(u.username)):
+                views.html.user.mod.gdprEraseButton(u)(cls := "button button-red button-empty confirm")
+            ),
+            if checkboxes then userTable.userCheckboxTd(u.marks.alt)
+            else
+              canCloseAlt option td(
+                !u.marks.alt option button(
+                  cls  := "button button-empty button-thin button-red mark-alt",
+                  href := routes.Mod.alt(u.id, !u.marks.alt)
+                )("ALT")
+              )
+          )
+        }
+      )
+    )
+
   private def parts(ps: Option[String]*) = ps.flatten.distinct mkString " "
 
   private def altMarks(alts: UserLogins.Alts) =
@@ -836,10 +884,9 @@ object mod:
       alts.alts     -> alt,
       alts.closed   -> closed,
       alts.cleans   -> clean
-    ) collect {
+    ).collect:
       case (nb, tag) if nb > 4 => frag(List.fill(3)(tag), "+", nb - 3)
       case (nb, tag) if nb > 0 => frag(List.fill(nb)(tag))
-    }
 
   private def reportSubmitButton(r: lila.report.Report)(using Lang) =
     submitButton(
@@ -851,9 +898,8 @@ object mod:
 
   def userMarks(o: User, playbans: Option[Int]) =
     div(cls := "user_marks")(
-      playbans.map { nb =>
-        playban(nb)
-      },
+      playbans.map: nb =>
+        playban(nb),
       o.marks.troll option shadowban,
       o.marks.boost option boosting,
       o.marks.engine option engine,

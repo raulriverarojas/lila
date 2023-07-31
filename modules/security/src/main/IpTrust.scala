@@ -2,38 +2,63 @@ package lila.security
 
 import lila.common.IpAddress
 
-final class IpTrust(proxyApi: Ip2Proxy, geoApi: GeoIP, torApi: Tor, firewallApi: Firewall):
+final class IpTrust(proxyApi: Ip2Proxy, geoApi: GeoIP, firewallApi: Firewall):
 
-  def isSuspicious(ip: IpAddress): Fu[Boolean] =
+  import IpTrust.*
+
+  private[security] def isSuspicious(ip: IpAddress): Fu[Boolean] =
     if firewallApi blocksIp ip then fuTrue
-    else if torApi isExitNode ip then fuTrue
-    else
-      val location = geoApi orUnknown ip
-      if location == Location.unknown || location == Location.tor then fuTrue
-      else if isUndetectedProxy(location) then fuTrue
-      else proxyApi(ip).dmap(_.is)
+    else proxyApi(ip).dmap(_.is)
 
-  def isSuspicious(ipData: UserLogins.IPData): Fu[Boolean] =
+  private[security] def isSuspicious(ipData: UserLogins.IPData): Fu[Boolean] =
     isSuspicious(ipData.ip.value)
 
-  final class rateLimit(credits: Int, duration: FiniteDuration, key: String, factor: Int = 3):
+  def data(ip: IpAddress): Fu[IpData] =
+    proxyApi(ip).dmap(IpData(_, geoApi orUnknown ip))
+
+  def isPubOrTor(ip: IpAddress): Fu[Boolean] = proxyApi(ip).dmap:
+    case IsProxy.public | IsProxy.tor => true
+    case _                            => false
+
+  final class rateLimit(
+      credits: Int,
+      duration: FiniteDuration,
+      key: String,
+      strategy: IpTrust.type => RateLimitStrategy = _.defaultRateLimitStrategy
+  ):
     import lila.memo.{ RateLimit as RL }
     private val limiter = RL[IpAddress](credits, duration, key)
     def apply[A](ip: IpAddress, default: => Fu[A], cost: RL.Cost = 1, msg: => String = "")(op: => Fu[A])(using
         Executor
-    ): Fu[A] =
-      isSuspicious(ip).flatMap: susp =>
-        val realCost = cost * (if susp then factor else 1)
-        limiter[Fu[A]](ip, default, realCost, msg)(op)
+    ): Fu[A] = for
+      proxy <- proxyApi(ip)
+      ipCostFactor = strategy(IpTrust)(proxy)
+      res <- limiter[Fu[A]](ip, default, (cost * ipCostFactor).toInt, s"$msg proxy:$proxy")(op)
+    yield res
 
-  /* lichess blacklist of proxies that ip2proxy doesn't know about */
-  private def isUndetectedProxy(location: Location): Boolean =
-    location.shortCountry == "Iran" ||
-      location.shortCountry == "United Arab Emirates" || (location match
-        case Location("Poland", _, Some("Subcarpathian Voivodeship"), Some("Stalowa Wola")) => true
-        case Location("Poland", _, Some("Lesser Poland Voivodeship"), Some("Krakow"))       => true
-        case Location("Russia", _, Some(region), Some("Ufa" | "Sterlitamak"))
-            if region contains "Bashkortostan" =>
-          true
-        case _ => false
-      )
+  def rateLimitCostFactor(
+      ip: IpAddress,
+      strategy: IpTrust.type => RateLimitStrategy = _.defaultRateLimitStrategy
+  ): Fu[Float] =
+    proxyApi(ip).dmap(strategy(IpTrust))
+
+object IpTrust:
+
+  case class IpData(proxy: IsProxy, location: Location)
+
+  type RateLimitStrategy = IsProxy => Float
+
+  // https://blog.ip2location.com/knowledge-base/what-are-the-proxy-types-supported-in-ip2proxy/
+  val defaultRateLimitStrategy: RateLimitStrategy =
+    case IsProxy.vpn         => 2.5
+    case IsProxy.tor         => 3
+    case IsProxy.server      => 1.5
+    case IsProxy.public      => 4
+    case IsProxy.web         => 3
+    case IsProxy.search      => 1
+    case IsProxy.residential => 3
+    case _                   => 1
+
+  def proxyMultiplier(times: Float): RateLimitStrategy =
+    case IsProxy.empty => 1
+    case proxy         => defaultRateLimitStrategy(proxy) * times

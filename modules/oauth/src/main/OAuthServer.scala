@@ -24,7 +24,7 @@ final class OAuthServer(
     } map checkOauthUaUser(req) recover { case e: AuthError =>
       Left(e)
     } addEffect { res =>
-      monitorAuth(res.isRight, req)
+      monitorAuth(res.isRight)
     }
 
   def auth(tokenId: Bearer, accepted: EndpointScopes, andLogReq: Option[RequestHeader]): Fu[AccessResult] =
@@ -68,12 +68,11 @@ final class OAuthServer(
   yield result
 
   val UaUserRegex = """(?:user|as):\s?([\w\-]{3,31})""".r
-  private def checkOauthUaUser(req: RequestHeader)(access: AccessResult): AccessResult = access match
-    case Right(access) =>
+  private def checkOauthUaUser(req: RequestHeader)(access: AccessResult): AccessResult =
+    access.flatMap: a =>
       HTTPRequest.userAgent(req).map(_.value) match
-        case Some(UaUserRegex(u)) if access.me.isnt(UserStr(u)) => Left(UserAgentMismatch)
-        case _                                                  => Right(access)
-    case err => err
+        case Some(UaUserRegex(u)) if a.me.isnt(UserStr(u)) => Left(UserAgentMismatch)
+        case _                                             => Right(a)
 
   private val bearerSigner = Algo hmac mobileSecret.value
   private def getTokenFromSignedBearer(full: Bearer): Fu[Option[AccessToken.ForAuth]] =
@@ -88,11 +87,8 @@ final class OAuthServer(
           none
         else token.some
 
-  private val cleanUaRegex = """ user:[\w\-]{2,30}""".r
-  private def monitorAuth(success: Boolean, req: RequestHeader) =
-    val ua      = HTTPRequest.userAgent(req).fold("none")(_.value)
-    val cleanUa = cleanUaRegex.replaceAllIn(ua, "")
-    lila.mon.user.oauth.request(cleanUa, success).increment()
+  private def monitorAuth(success: Boolean) =
+    lila.mon.user.oauth.request(success).increment()
 
 object OAuthServer:
 

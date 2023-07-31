@@ -10,7 +10,7 @@ type Path = string;
 export type SoundMove = (node?: { san?: string; uci?: string }) => void;
 
 export default new (class implements SoundI {
-  ctx = new (AudioContext || window.webkitAudioContext)();
+  ctx = makeAudioContext();
   sounds = new Map<Path, Sound>(); // All loaded sounds and their instances
   paths = new Map<Name, Path>(); // sound names to paths
   theme = $('body').data('sound-set');
@@ -19,21 +19,14 @@ export default new (class implements SoundI {
   baseUrl = assetUrl('sound', { version: '_____1' });
   soundMove?: SoundMove;
 
-  async context() {
-    if (this.ctx.state !== 'running' && this.ctx.state !== 'suspended') {
-      // in addition to 'closed', iOS has 'interrupted'. who knows what else is out there
-      this.ctx = new (AudioContext || window.webkitAudioContext)();
-      for (const s of this.sounds.values()) s.rewire(this.ctx);
-    }
-    if (this.ctx.state === 'suspended') await this.ctx.resume();
-
-    return this.ctx;
+  constructor() {
+    $('body').on('click touchstart', this.primer);
   }
 
   async load(name: Name, path?: Path): Promise<Sound | undefined> {
+    if (!this.ctx) return;
     if (path) this.paths.set(name, path);
-    else if (this.paths.has(name)) path = this.paths.get(name);
-    else path ??= this.resolve(name);
+    else path = this.paths.get(name) ?? this.resolvePath(name);
     if (!path) return;
     if (this.sounds.has(path)) return this.sounds.get(path);
 
@@ -41,18 +34,22 @@ export default new (class implements SoundI {
     if (!result.ok) throw new Error(`${path}.mp3 failed ${result.status}`);
 
     const arrayBuffer = await result.arrayBuffer();
-    const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
+    const audioBuffer = await new Promise<AudioBuffer>((resolve, reject) => {
+      if (this.ctx?.decodeAudioData.length === 1)
+        this.ctx?.decodeAudioData(arrayBuffer).then(resolve).catch(reject);
+      else this.ctx?.decodeAudioData(arrayBuffer, resolve, reject);
+    });
     const sound = new Sound(this.ctx, audioBuffer);
     this.sounds.set(path, sound);
     return sound;
   }
 
-  resolve(name: Name): string | undefined {
+  resolvePath(name: Name): string | undefined {
     if (!this.enabled()) return;
     let dir = this.theme;
-    if (this.theme === 'music' || this.theme === 'speech') {
+    if (this.theme === 'music' || this.speech()) {
       if (['move', 'capture', 'check'].includes(name)) return;
-      if (name === 'genericNotify' || this.theme === 'speech') dir = 'standard';
+      if (name === 'genericNotify' || this.speech()) dir = 'standard';
       else dir = 'instrument';
     }
     return `${this.baseUrl}/${dir}/${name[0].toUpperCase() + name.slice(1)}`;
@@ -64,13 +61,8 @@ export default new (class implements SoundI {
       this.load(name)
         .then(async sound => {
           if (!sound) return resolve();
-          const resumeTimer = setTimeout(() => {
-            $('#warn-no-autoplay').addClass('shown');
-            resolve();
-          }, 400);
-          await this.context();
-          clearTimeout(resumeTimer);
-          sound.play(this.getVolume() * volume, resolve);
+          if (await this.resumeContext()) sound.play(this.getVolume() * volume, resolve);
+          else resolve();
         })
         .catch(resolve);
     });
@@ -127,7 +119,7 @@ export default new (class implements SoundI {
   say = (text: string, cut = false, force = false, translated = false) => {
     try {
       if (cut) speechSynthesis.cancel();
-      if (!this.speechStorage.get() && !force) return false;
+      if (!this.speech() && !force) return false;
       const msg = new SpeechSynthesisUtterance(text);
       msg.volume = this.getVolume();
       msg.lang = translated ? document.documentElement!.lang : 'en-US';
@@ -149,6 +141,7 @@ export default new (class implements SoundI {
   publish = () => pubsub.emit('sound_set', this.theme);
 
   changeSet = (s: string) => {
+    if (isIOS()) this.ctx?.resume();
     this.theme = s;
     this.publish();
     this.move();
@@ -196,6 +189,42 @@ export default new (class implements SoundI {
   preloadBoardSounds() {
     for (const name of ['move', 'capture', 'check', 'genericNotify']) this.load(name);
   }
+
+  async resumeContext(): Promise<boolean> {
+    if (!this.ctx) return false;
+    if (this.ctx.state !== 'running' && this.ctx.state !== 'suspended') {
+      // in addition to 'closed', iOS has 'interrupted'. who knows what else is out there
+      this.ctx = makeAudioContext();
+      if (this.ctx) {
+        for (const s of this.sounds.values()) s.rewire(this.ctx);
+      }
+    }
+    // if suspended, try audioContext.resume() with a timeout (sometimes it never resolves)
+    if (this.ctx?.state === 'suspended')
+      await new Promise<void>(resolve => {
+        const resumeTimer = setTimeout(() => {
+          $('#warn-no-autoplay').addClass('shown');
+          resolve();
+        }, 400);
+        this.ctx
+          ?.resume()
+          .then(() => {
+            clearTimeout(resumeTimer);
+            resolve();
+          })
+          .catch(resolve);
+      });
+    return this.ctx?.state === 'running';
+  }
+
+  primer = () => {
+    if (isIOS({ below: 13 })) {
+      this.ctx = makeAudioContext()!;
+      for (const s of this.sounds.values()) s.rewire(this.ctx);
+    } else if (this.ctx?.state === 'suspended') this.ctx.resume();
+    $('body').off('click touchstart', this.primer);
+    setTimeout(() => $('#warn-no-autoplay').removeClass('shown'), 500);
+  };
 })();
 
 class Sound {
@@ -224,4 +253,12 @@ class Sound {
     this.node = this.ctx.createGain();
     this.node.connect(this.ctx.destination);
   }
+}
+
+function makeAudioContext(): AudioContext | undefined {
+  return window.webkitAudioContext
+    ? new window.webkitAudioContext()
+    : typeof AudioContext !== 'undefined'
+    ? new AudioContext()
+    : undefined;
 }

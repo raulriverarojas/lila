@@ -31,12 +31,15 @@ final class Env(
     noteApi: lila.user.NoteApi,
     cacheApi: lila.memo.CacheApi,
     ircApi: lila.irc.IrcApi,
-    msgApi: lila.msg.MsgApi
+    msgApi: lila.msg.MsgApi,
+    ip2proxy: lila.security.Ip2Proxy
 )(using Executor, Scheduler):
   private lazy val logRepo        = ModlogRepo(db(CollName("modlog")))
   private lazy val assessmentRepo = AssessmentRepo(db(CollName("player_assessment")))
   private lazy val historyRepo    = HistoryRepo(db(CollName("mod_gaming_history")))
   private lazy val queueStatsRepo = ModQueueStatsRepo(db(CollName("mod_queue_stat")))
+
+  lazy val presets = wire[ModPresetsApi]
 
   lazy val logApi = wire[ModlogApi]
 
@@ -63,8 +66,6 @@ final class Env(
   lazy val inquiryApi = wire[InquiryApi]
 
   lazy val stream = wire[ModStream]
-
-  lazy val presets = wire[ModPresetsApi]
 
   lazy val ipRender = wire[IpRender]
 
