@@ -307,10 +307,9 @@ final class Mod(
           .modFullCommsExport(user.id)
           .map: (tid, msgs) =>
             s"=== 0 === thread: ${tid}\n${msgs.map(m => s"${m.date} ${m.user}: ${m.text}\n--- 0 ---\n").toList.mkString("\n")}"
-        Ok.chunked(source)
-          .pipe(asAttachmentStream(s"full-comms-export-of-${user.id}.txt"))
-          .andDo(env.mod.logApi.fullCommExport(Suspect(user)))
-          .andDo(env.irc.api.fullCommExport(user.light))
+        env.mod.logApi.fullCommExport(Suspect(user))
+        env.irc.api.fullCommExport(user.light)
+        Ok.chunked(source).pipe(asAttachmentStream(s"full-comms-export-of-${user.id}.txt"))
     }
 
   protected[controllers] def redirect(username: UserStr, mod: Boolean = true) =
@@ -547,7 +546,7 @@ final class Mod(
     Found(env.user.repo.byId(username)): user =>
       for
         logs      <- env.mod.logApi.userHistory(user.id)
-        notes     <- env.socialInfo.fetchNotes(user)
+        notes     <- env.user.noteApi.get(user)
         notesJson <- lila.user.JsonView.notes(notes)(using env.user.lightUserApi)
       yield JsonOk(
         Json.obj(
